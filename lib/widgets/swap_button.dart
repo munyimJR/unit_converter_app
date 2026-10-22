@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import '../../constants/constants.dart';
 
-/// Circular animated swap button that sits between the From and To dropdowns.
+/// Swap button with a rotation + scale-bounce + haptic feedback animation.
+/// Uses two controllers: one for spin, one for the press-scale bounce.
 class SwapButton extends StatefulWidget {
   final VoidCallback onTap;
 
@@ -12,31 +14,63 @@ class SwapButton extends StatefulWidget {
 }
 
 class _SwapButtonState extends State<SwapButton>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller;
-  late final Animation<double> _rotation;
+    with TickerProviderStateMixin {
+  // ── Spin ─────────────────────────────────────────────────────────────────
+  late final AnimationController _spinController;
+  late final Animation<double> _spin;
+
+  // ── Scale bounce ─────────────────────────────────────────────────────────
+  late final AnimationController _scaleController;
+  late final Animation<double> _scale;
 
   @override
   void initState() {
     super.initState();
-    _controller = AnimationController(
+
+    _spinController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 400),
+      duration: const Duration(milliseconds: 450),
     );
-    _rotation = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+    _spin = Tween<double>(begin: 0, end: 1).animate(
+      CurvedAnimation(parent: _spinController, curve: Curves.easeInOutBack),
     );
+
+    _scaleController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 160),
+    );
+    // Press-in → small → spring back > 1 → settle at 1
+    _scale = TweenSequence<double>([
+      TweenSequenceItem(
+        tween: Tween(begin: 1.0, end: 0.82)
+            .chain(CurveTween(curve: Curves.easeIn)),
+        weight: 40,
+      ),
+      TweenSequenceItem(
+        tween: Tween(begin: 0.82, end: 1.12)
+            .chain(CurveTween(curve: Curves.easeOut)),
+        weight: 35,
+      ),
+      TweenSequenceItem(
+        tween: Tween(begin: 1.12, end: 1.0)
+            .chain(CurveTween(curve: Curves.elasticOut)),
+        weight: 25,
+      ),
+    ]).animate(_scaleController);
   }
 
   @override
   void dispose() {
-    _controller.dispose();
+    _spinController.dispose();
+    _scaleController.dispose();
     super.dispose();
   }
 
-  void _handleTap() {
-    _controller.forward(from: 0);
+  Future<void> _handleTap() async {
+    HapticFeedback.lightImpact();
     widget.onTap();
+    _spinController.forward(from: 0);
+    await _scaleController.forward(from: 0);
   }
 
   @override
@@ -44,28 +78,37 @@ class _SwapButtonState extends State<SwapButton>
     return GestureDetector(
       onTap: _handleTap,
       child: AnimatedBuilder(
-        animation: _rotation,
-        builder: (_, child) => Transform.rotate(
-          angle: _rotation.value * 3.14159,
-          child: Container(
-            width: 48,
-            height: 48,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: AppColors.swapButton,
-              boxShadow: [
-                BoxShadow(
-                  color: AppColors.primaryBlue.withValues(alpha: 0.35),
-                  blurRadius: 12,
-                  offset: const Offset(0, 4),
-                ),
-              ],
+        animation: Listenable.merge([_spin, _scale]),
+        builder: (_, child) => Transform.scale(
+          scale: _scale.value,
+          child: Transform.rotate(
+            angle: _spin.value * 3.14159,
+            child: child,
+          ),
+        ),
+        child: Container(
+          width: 52,
+          height: 52,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            gradient: const LinearGradient(
+              colors: [Color(0xFF448AFF), Color(0xFF2962FF)],
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
             ),
-            child: const Icon(
-              Icons.swap_horiz_rounded,
-              color: Colors.white,
-              size: 26,
-            ),
+            boxShadow: [
+              BoxShadow(
+                color: AppColors.primaryBlue.withValues(alpha: 0.40),
+                blurRadius: 14,
+                spreadRadius: 1,
+                offset: const Offset(0, 5),
+              ),
+            ],
+          ),
+          child: const Icon(
+            Icons.swap_horiz_rounded,
+            color: Colors.white,
+            size: 27,
           ),
         ),
       ),
