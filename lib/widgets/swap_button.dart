@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../constants/constants.dart';
 
-/// Swap button with a rotation + scale-bounce + haptic feedback animation.
-/// Uses two controllers: one for spin, one for the press-scale bounce.
+/// Swap button with a smooth 360° spin on tap.
+/// Single controller, no scale animation — keeps layout stable.
 class SwapButton extends StatefulWidget {
   final VoidCallback onTap;
 
@@ -14,81 +14,43 @@ class SwapButton extends StatefulWidget {
 }
 
 class _SwapButtonState extends State<SwapButton>
-    with TickerProviderStateMixin {
-  // ── Spin ─────────────────────────────────────────────────────────────────
-  late final AnimationController _spinController;
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
   late final Animation<double> _spin;
-
-  // ── Scale bounce ─────────────────────────────────────────────────────────
-  late final AnimationController _scaleController;
-  late final Animation<double> _scale;
 
   @override
   void initState() {
     super.initState();
-
-    _spinController = AnimationController(
+    _controller = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 450),
+      duration: const Duration(milliseconds: 350),
     );
-    _spin = Tween<double>(begin: 0, end: 1).animate(
-      CurvedAnimation(parent: _spinController, curve: Curves.easeInOutBack),
+    _spin = Tween<double>(begin: 0.0, end: 1.0).animate(
+      CurvedAnimation(parent: _controller, curve: Curves.easeInOutCubic),
     );
-
-    _scaleController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 160),
-    );
-    // Press-in → small → spring back > 1 → settle at 1
-    _scale = TweenSequence<double>([
-      TweenSequenceItem(
-        tween: Tween(begin: 1.0, end: 0.82)
-            .chain(CurveTween(curve: Curves.easeIn)),
-        weight: 40,
-      ),
-      TweenSequenceItem(
-        tween: Tween(begin: 0.82, end: 1.12)
-            .chain(CurveTween(curve: Curves.easeOut)),
-        weight: 35,
-      ),
-      TweenSequenceItem(
-        tween: Tween(begin: 1.12, end: 1.0)
-            .chain(CurveTween(curve: Curves.elasticOut)),
-        weight: 25,
-      ),
-    ]).animate(_scaleController);
   }
 
   @override
   void dispose() {
-    _spinController.dispose();
-    _scaleController.dispose();
+    _controller.dispose();
     super.dispose();
   }
 
-  Future<void> _handleTap() async {
+  void _handleTap() {
     HapticFeedback.lightImpact();
     widget.onTap();
-    _spinController.forward(from: 0);
-    await _scaleController.forward(from: 0);
+    _controller.forward(from: 0.0);
   }
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
       onTap: _handleTap,
-      child: AnimatedBuilder(
-        animation: Listenable.merge([_spin, _scale]),
-        builder: (_, child) => Transform.scale(
-          scale: _scale.value,
-          child: Transform.rotate(
-            angle: _spin.value * 3.14159,
-            child: child,
-          ),
-        ),
+      child: RotationTransition(
+        turns: _spin,
         child: Container(
-          width: 52,
-          height: 52,
+          width: 50,
+          height: 50,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
             gradient: const LinearGradient(
@@ -98,17 +60,16 @@ class _SwapButtonState extends State<SwapButton>
             ),
             boxShadow: [
               BoxShadow(
-                color: AppColors.primaryBlue.withValues(alpha: 0.40),
-                blurRadius: 14,
-                spreadRadius: 1,
-                offset: const Offset(0, 5),
+                color: AppColors.primaryBlue.withValues(alpha: 0.35),
+                blurRadius: 12,
+                offset: const Offset(0, 4),
               ),
             ],
           ),
           child: const Icon(
             Icons.swap_horiz_rounded,
             color: Colors.white,
-            size: 27,
+            size: 26,
           ),
         ),
       ),

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../constants/constants.dart';
 
-/// Displays the conversion result with a smooth scale+fade spring animation.
+/// Displays the conversion result with a fast fade crossfade on change.
 class ResultCard extends StatelessWidget {
   final String resultValue;
   final String unitSymbol;
@@ -19,14 +19,13 @@ class ResultCard extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 22),
       decoration: BoxDecoration(
         color: AppColors.cardBackground,
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: AppColors.borderColor),
         boxShadow: [
           BoxShadow(
-            color: AppColors.primaryBlue.withValues(alpha: 0.08),
-            blurRadius: 20,
-            spreadRadius: 2,
-            offset: const Offset(0, 6),
+            color: AppColors.primaryBlue.withValues(alpha: 0.07),
+            blurRadius: 16,
+            offset: const Offset(0, 4),
           ),
         ],
       ),
@@ -37,33 +36,11 @@ class ResultCard extends StatelessWidget {
           const SizedBox(height: 12),
           Center(
             child: AnimatedSwitcher(
-              duration: const Duration(milliseconds: 380),
-              switchInCurve: Curves.easeOutBack,
-              switchOutCurve: Curves.easeIn,
-              transitionBuilder: (child, animation) {
-                // Scale spring + simultaneous fade
-                final scaleTween = Tween<double>(begin: 0.72, end: 1.0)
-                    .chain(CurveTween(curve: Curves.elasticOut));
-                return FadeTransition(
-                  opacity: CurvedAnimation(
-                    parent: animation,
-                    curve: const Interval(0.0, 0.6, curve: Curves.easeOut),
-                  ),
-                  child: ScaleTransition(
-                    scale: animation.drive(scaleTween),
-                    child: child,
-                  ),
-                );
-              },
-              layoutBuilder: (currentChild, previousChildren) {
-                return Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    ...previousChildren,
-                    ?currentChild,
-                  ],
-                );
-              },
+              duration: const Duration(milliseconds: 180),
+              transitionBuilder: (child, animation) => FadeTransition(
+                opacity: animation,
+                child: child,
+              ),
               child: RichText(
                 key: ValueKey('$resultValue|$unitSymbol'),
                 textAlign: TextAlign.center,

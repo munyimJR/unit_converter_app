@@ -2,12 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../constants/constants.dart';
+import '../models/models.dart';
 import '../providers/converter_provider.dart';
 import '../widgets/widgets.dart';
 
-/// The main Unit Converter screen.
-/// Animates each section in on first build and cross-fades the content
-/// area when the user switches categories.
+/// Main Unit Converter screen.
+/// Uses [Selector] so only the result card rebuilds on every keystroke —
+/// the rest of the layout rebuilds only when category/units change.
 class ConverterScreen extends StatefulWidget {
   const ConverterScreen({super.key});
 
@@ -15,73 +16,13 @@ class ConverterScreen extends StatefulWidget {
   State<ConverterScreen> createState() => _ConverterScreenState();
 }
 
-class _ConverterScreenState extends State<ConverterScreen>
-    with SingleTickerProviderStateMixin {
+class _ConverterScreenState extends State<ConverterScreen> {
   final TextEditingController _inputController = TextEditingController();
-
-  // Staggered entry controller – animates items in from the bottom on launch
-  late final AnimationController _entryController;
-  late final List<Animation<double>> _entryFades;
-  late final List<Animation<Offset>> _entrySlides;
-
-  // How many staggered sections we have
-  static const int _sectionCount = 5; // tab, input, from, to, result
-
-  @override
-  void initState() {
-    super.initState();
-
-    _entryController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    );
-
-    // Build per-section fade + slide with increasing delays
-    _entryFades = List.generate(_sectionCount, (i) {
-      final start = i * 0.12;
-      final end = (start + 0.45).clamp(0.0, 1.0);
-      return CurvedAnimation(
-        parent: _entryController,
-        curve: Interval(start, end, curve: Curves.easeOut),
-      );
-    });
-
-    _entrySlides = List.generate(_sectionCount, (i) {
-      final start = i * 0.12;
-      final end = (start + 0.45).clamp(0.0, 1.0);
-      return Tween<Offset>(
-        begin: const Offset(0, 0.25),
-        end: Offset.zero,
-      ).animate(
-        CurvedAnimation(
-          parent: _entryController,
-          curve: Interval(start, end, curve: Curves.easeOutCubic),
-        ),
-      );
-    });
-
-    // Start entry animation after the first frame
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _entryController.forward();
-    });
-  }
 
   @override
   void dispose() {
     _inputController.dispose();
-    _entryController.dispose();
     super.dispose();
-  }
-
-  // Wraps a widget with the staggered entry animation for [sectionIndex]
-  Widget _animated(int index, Widget child) {
-    return FadeTransition(
-      opacity: _entryFades[index],
-      child: SlideTransition(
-        position: _entrySlides[index],
-        child: child,
-      ),
-    );
   }
 
   @override
@@ -89,118 +30,85 @@ class _ConverterScreenState extends State<ConverterScreen>
     return Scaffold(
       backgroundColor: AppColors.scaffoldBackground,
       appBar: _buildAppBar(),
-      body: Consumer<ConverterProvider>(
-        builder: (context, provider, _) {
-          return SingleChildScrollView(
-            physics: const BouncingScrollPhysics(),
-            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // ── 0: Category tabs ─────────────────────────────────────────
-                _animated(
-                  0,
-                  CategoryTabBar(
-                    selected: provider.category,
-                    onCategoryChanged: (cat) {
-                      provider.setCategory(cat);
-                      _inputController.clear();
-                    },
-                  ),
-                ),
-
-                const SizedBox(height: 24),
-
-                // ── 1–4: Content cross-fades when category changes ───────────
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 340),
-                  switchInCurve: Curves.easeOutCubic,
-                  switchOutCurve: Curves.easeInCubic,
-                  transitionBuilder: (child, animation) => FadeTransition(
-                    opacity: animation,
-                    child: SlideTransition(
-                      position: Tween<Offset>(
-                        begin: const Offset(0.04, 0),
-                        end: Offset.zero,
-                      ).animate(animation),
-                      child: child,
-                    ),
-                  ),
-                  child: _buildForm(provider),
-                ),
-              ],
+      body: SingleChildScrollView(
+        physics: const BouncingScrollPhysics(),
+        padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // ── Category tabs — rebuilds only when category changes ──────────
+            Selector<ConverterProvider, ConversionCategory>(
+              selector: (_, p) => p.category,
+              builder: (_, category, _) => CategoryTabBar(
+                selected: category,
+                onCategoryChanged: (cat) {
+                  context.read<ConverterProvider>().setCategory(cat);
+                  _inputController.clear();
+                },
+              ),
             ),
-          );
-        },
-      ),
-    );
-  }
 
-  /// Builds the input + dropdowns + result column.
-  /// Keyed on [category] so AnimatedSwitcher fires on every tab switch.
-  Widget _buildForm(ConverterProvider provider) {
-    return KeyedSubtree(
-      key: ValueKey(provider.category),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── 1: Value input ─────────────────────────────────────────────────
-          _animated(
-            1,
+            const SizedBox(height: 24),
+
+            // ── Input field — never rebuilt by provider (owns its own state) ─
             ValueInputField(
               controller: _inputController,
-              onChanged: provider.setInputValue,
+              onChanged: (v) => context.read<ConverterProvider>().setInputValue(v),
             ),
-          ),
 
-          const SizedBox(height: 20),
+            const SizedBox(height: 20),
 
-          // ── 2: From dropdown ───────────────────────────────────────────────
-          _animated(
-            2,
-            UnitDropdown(
-              label: 'From',
-              selectedUnit: provider.fromUnit,
-              units: provider.availableUnits,
-              onChanged: (unit) {
-                if (unit != null) provider.setFromUnit(unit);
-              },
+            // ── From dropdown — rebuilds when from-unit changes ──────────────
+            Selector<ConverterProvider, _DropdownState>(
+              selector: (_, p) => _DropdownState(p.fromUnit, p.availableUnits),
+              builder: (_, state, _) => UnitDropdown(
+                label: 'From',
+                selectedUnit: state.selected,
+                units: state.units,
+                onChanged: (unit) {
+                  if (unit != null) context.read<ConverterProvider>().setFromUnit(unit);
+                },
+              ),
             ),
-          ),
 
-          const SizedBox(height: 8),
+            const SizedBox(height: 8),
 
-          // ── Swap button ────────────────────────────────────────────────────
-          Center(child: SwapButton(onTap: provider.swapUnits)),
-
-          const SizedBox(height: 8),
-
-          // ── 3: To dropdown ─────────────────────────────────────────────────
-          _animated(
-            3,
-            UnitDropdown(
-              label: 'To',
-              selectedUnit: provider.toUnit,
-              units: provider.availableUnits,
-              onChanged: (unit) {
-                if (unit != null) provider.setToUnit(unit);
-              },
+            // ── Swap button — reads nothing from provider directly ───────────
+            Center(
+              child: SwapButton(
+                onTap: () => context.read<ConverterProvider>().swapUnits(),
+              ),
             ),
-          ),
 
-          const SizedBox(height: 24),
+            const SizedBox(height: 8),
 
-          // ── 4: Result card ─────────────────────────────────────────────────
-          _animated(
-            4,
-            ResultCard(
-              resultValue: provider.formattedResult,
-              unitSymbol: provider.toUnit.symbol,
+            // ── To dropdown — rebuilds when to-unit changes ──────────────────
+            Selector<ConverterProvider, _DropdownState>(
+              selector: (_, p) => _DropdownState(p.toUnit, p.availableUnits),
+              builder: (_, state, _) => UnitDropdown(
+                label: 'To',
+                selectedUnit: state.selected,
+                units: state.units,
+                onChanged: (unit) {
+                  if (unit != null) context.read<ConverterProvider>().setToUnit(unit);
+                },
+              ),
             ),
-          ),
 
-          const SizedBox(height: 16),
-        ],
+            const SizedBox(height: 24),
+
+            // ── Result card — rebuilds only when result/symbol changes ────────
+            Selector<ConverterProvider, _ResultState>(
+              selector: (_, p) => _ResultState(p.formattedResult, p.toUnit.symbol),
+              builder: (_, state, _) => ResultCard(
+                resultValue: state.value,
+                unitSymbol: state.symbol,
+              ),
+            ),
+
+            const SizedBox(height: 16),
+          ],
+        ),
       ),
     );
   }
@@ -217,4 +125,34 @@ class _ConverterScreenState extends State<ConverterScreen>
       title: const Text('Unit Converter', style: AppTextStyles.appBarTitle),
     );
   }
+}
+
+// ── Private data classes for Selector equality checks ─────────────────────────
+
+class _DropdownState {
+  final UnitModel selected;
+  final List<UnitModel> units;
+  const _DropdownState(this.selected, this.units);
+
+  @override
+  bool operator ==(Object other) =>
+      other is _DropdownState &&
+      selected == other.selected &&
+      units.length == other.units.length;
+
+  @override
+  int get hashCode => selected.hashCode ^ units.length;
+}
+
+class _ResultState {
+  final String value;
+  final String symbol;
+  const _ResultState(this.value, this.symbol);
+
+  @override
+  bool operator ==(Object other) =>
+      other is _ResultState && value == other.value && symbol == other.symbol;
+
+  @override
+  int get hashCode => value.hashCode ^ symbol.hashCode;
 }
